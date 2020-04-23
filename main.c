@@ -168,6 +168,101 @@ void SetSysClockToHSE(void)
     }
 }
 
+#define PREAMBLE_SEQUENCE (0xAB) // 10101011b
+#define HIGH_LOW_SELECT (0x01)   // 00000001b
+
+#define FREQ_SWITCH
+// #define PHASE_SWITCH
+
+#define HW_SWITH
+// #define SW_SWITH
+
+#if defined FREQ_SWITCH && defined PHASE_SWITCH
+#error "there should be a freq switch or phase switch, one thing"
+#endif
+
+#if defined HW_SWITH && defined SW_SWITH
+#error "only one switching method must be defined"
+#endif
+
+#define SWITCH_PERIOD (3)
+#define FREQ1_VAL (1500.0)
+#define FREQ2_VAL (1000.0)
+#define PHASE1_VAL (0)
+#define PHASE2_VAL (180)
+
+// #define LED_INDICATION
+
+void modulate_high()
+{
+    /* reg1 select */
+#ifdef LED_INDICATION
+    GPIO_SetBits(GPIOC, GPIO_Pin_13);
+#endif
+#if defined FREQ_SWITCH && defined HW_SWITH
+    GPIO_SetBits(GPIOA, FSELECT);
+#elif defined FREQ_SWITCH && defined SW_SWITH
+    shift16(AD9834_CR_B28);
+#elif defined PHASE_SWITCH && defined HW_SWITH
+    GPIO_SetBits(GPIOA, PSELECT);
+#elif defined PHASE_SWITCH && defined SW_SWITH
+    shift16(AD9834_CR_B28 | AD9834_CR_PSEL);
+#endif
+    delay(SWITCH_PERIOD);
+}
+
+void moduleate_low()
+{
+    /* reg0 select */
+#ifdef LED_INDICATION
+    GPIO_ResetBits(GPIOC, GPIO_Pin_13);
+#endif
+#if defined FREQ_SWITCH && defined HW_SWITH
+    GPIO_ResetBits(GPIOA, FSELECT);
+#elif defined FREQ_SWITCH && defined SW_SWITH
+    shift16(AD9834_CR_B28 | AD9834_CR_FSEL);
+#elif defined PHASE_SWITCH && defined HW_SWITH
+    GPIO_ResetBits(GPIOA, PSELECT);
+#elif defined PHASE_SWITCH && defined SW_SWITH
+    shift16(AD9834_CR_B28 | AD9834_CR_PSEL);
+#endif
+    delay(SWITCH_PERIOD);
+}
+
+uint8_t data[] = "hello";
+// {
+//     0x68, // 'h'
+//     0x65, // 'e'
+//     0x6c, // 'l'
+//     0x6c, // 'l'
+//     0x6f, // 'o'
+//     0x00  // '\0'
+// };
+
+void send_byte(uint8_t byte)
+{
+    for (int j = 7; j >= 0; --j)
+    {
+        if ((byte >> j) & HIGH_LOW_SELECT)
+            modulate_high();
+        else
+            moduleate_low();
+    }
+}
+
+void send_data(uint8_t * data, uint32_t size)
+{
+    for (int i = 0; i < size; ++i)
+    {
+        send_byte(data[i]);
+    }
+}
+
+void send_preamble()
+{
+    send_byte(PREAMBLE_SEQUENCE);
+}
+
 int main(void)
 {
     SetSysClockToHSE();
@@ -194,28 +289,6 @@ int main(void)
     GPIO_Init(GPIOC, &GPIO_InitStructure);
     GPIO_ResetBits(GPIOC, GPIO_Pin_All);
 
-#define FREQ_SWITCH
-// #define PHASE_SWITCH
-
-#define HW_SWITH
-// #define SW_SWITH
-
-#if defined FREQ_SWITCH && defined PHASE_SWITCH
-#error "there should be a freq switch or phase switch, one thing"
-#endif
-
-#if defined HW_SWITH && defined SW_SWITH
-#error "only one switching method must be defined"
-#endif
-
-#define SWITCH_PERIOD (3)
-#define FREQ1_VAL (1500.0)
-#define FREQ2_VAL (1000.0)
-#define PHASE1_VAL (0)
-#define PHASE2_VAL (180)
-
-// #define LED_INDICATION
-
     initDDS();
     shift16(AD9834_CR_B28 | AD9834_CR_RESET);
 #ifdef FREQ_SWITCH
@@ -232,33 +305,7 @@ int main(void)
 #endif
     while(1)
     {
-        /* reg0 select */
-#ifdef LED_INDICATION
-        GPIO_ResetBits(GPIOC, GPIO_Pin_13);
-#endif
-#if defined FREQ_SWITCH && defined HW_SWITH
-        GPIO_ResetBits(GPIOA, FSELECT);
-#elif defined FREQ_SWITCH && defined SW_SWITH
-        shift16(AD9834_CR_B28 | AD9834_CR_FSEL);
-#elif defined PHASE_SWITCH && defined HW_SWITH
-        GPIO_ResetBits(GPIOA, PSELECT);
-#elif defined PHASE_SWITCH && defined SW_SWITH
-        shift16(AD9834_CR_B28 | AD9834_CR_PSEL);
-#endif
-        delay(SWITCH_PERIOD);
-        /* reg1 select */
-#ifdef LED_INDICATION
-        GPIO_SetBits(GPIOC, GPIO_Pin_13);
-#endif
-#if defined FREQ_SWITCH && defined HW_SWITH
-        GPIO_SetBits(GPIOA, FSELECT);
-#elif defined FREQ_SWITCH && defined SW_SWITH
-        shift16(AD9834_CR_B28);
-#elif defined PHASE_SWITCH && defined HW_SWITH
-        GPIO_SetBits(GPIOA, PSELECT);
-#elif defined PHASE_SWITCH && defined SW_SWITH
-        shift16(AD9834_CR_B28 | AD9834_CR_PSEL);
-#endif
-        delay(SWITCH_PERIOD);
+        send_preamble();
+        send_data(data, sizeof(data));
     }
 }
